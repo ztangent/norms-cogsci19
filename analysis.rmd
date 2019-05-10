@@ -1,0 +1,448 @@
+---
+title: "Bayesian Inference of Social Norms"
+output:
+  html_document:
+    df_print: paged
+---
+
+Uncomment and run this cell to make sure all dependencies are installed.
+
+```{r}
+source("http://bioconductor.org/biocLite.R")
+# biocLite(c("graph", "RBGL", "Rgraphviz"))
+# install.packages(c("bnlearn", "gRain", "gRbase"), dependencies=TRUE)
+```
+
+First we load the survey data and strip out the meta-data.
+
+```{r}
+# Read in raw survey data
+survey = read.delim('data.tsv', header=FALSE, na.strings=c(''))
+# Extract probability data and convert numeric
+probs = survey[-c(1,2,3),11:72]
+probs <- data.frame(sapply(probs, function(x) as.numeric(as.character(x))/100))
+fields = as.character(unlist(survey[1,11:72]))
+colnames(probs) = sapply(fields, function(x) substr(x, 0, nchar(x)-2))
+```
+
+Here we visualize the data to see if there are significant individual variations. 
+
+```{r}
+# Visualize empirical distributions
+visualize = function(probs, fieldname, plot_type='hist') {
+  values = probs[,c(fieldname)]
+  if (plot_type == 'hist') {
+    hist(values, breaks=seq(0,1,0.1), main=fieldname, xlab=fieldname)
+  } else {
+    plot(density(values[!is.na(values)], bw=0.10, from=0, to=1),
+         main=fieldname, xlab=fieldname)
+  }
+}
+for (n in names(probs)) {
+  if (substr(n,0,1) == '2') {
+    visualize(probs, n)
+  }
+}
+```
+
+Now we run t-tests to see if the data are significantly greater or lesser than 0.5.
+
+```{r}
+for (n in names(probs)) {
+  results = t.test(probs[,n], mu=0.5)
+  print(n)
+  print(results)
+}
+```
+
+Now we run ANOVA tests on desire probabilities, action conditionals, and norm posteriors.
+
+```{r}
+# Code to prefix experiment number
+EXPERIMENT = 1
+add_prefix = function(x) {return(paste(EXPERIMENT, x, sep='.'))}
+
+# ANOVA for actor desire prior and conditionals
+d1_probs = probs[,sapply(c("P(D1)", "P(D1|N=0)", "P(D1|N=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(d1_probs)))
+
+# ANOVA for judge desire prior and conditionals
+d2_probs = probs[,sapply(c("P(D2)", "P(D2|N=0)", "P(D2|N=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(d2_probs)))
+```
+
+```{r}
+# ANOVA for actor desire-only action conditionals
+a1_cond_d1_probs = probs[,sapply(c("P(A1|D1=0)", "P(A1|D1=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(a1_cond_d1_probs)))
+
+# ANOVA for actor norm-only action conditionals
+a1_cond_n_probs = probs[,sapply(c("P(A1|N=0)", "P(A1|N=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(a1_cond_n_probs)))
+
+# ANOVA for judge desire-only action conditionals
+a2_cond_d2_probs = probs[,sapply(c("P(A2|D2=0)", "P(A2|D2=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(a2_cond_d2_probs)))
+
+# ANOVA for judge norm-only action conditionals
+a2_cond_n_probs = probs[,sapply(c("P(A2|N=0)", "P(A2|N=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(a2_cond_n_probs)))
+```
+
+```{r}
+# ANOVA for actor full action conditionals
+a1_cond_probs = probs[,sapply(c("P(A1|D1=0,N=0)", "P(A1|D1=0,N=1)",
+                                "P(A1|D1=1,N=0)", "P(A1|D1=1,N=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(a1_cond_probs)))
+
+# ANOVA for judge full action conditionals
+a2_cond_probs = probs[,sapply(c("P(A2|D2=0,N=0)", "P(A2|D2=1,N=0)",
+                                "P(A2|D2=1,N=0)", "P(A2|D2=1,N=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(a2_cond_probs)))
+```
+
+```{r}
+# ANOVA for norm posteriors conditional on first action
+n_cond_a1_probs = probs[,sapply(c("P(N|A1=0)", "P(N|A1=1)"), add_prefix)]
+anova(lm(values ~ ind, stack(n_cond_a1_probs)))
+
+# ANOVA for norm posteriors conditional on first action
+if (EXPERIMENT == 1) {
+  cols = c("P(N|A1=0,A2=0)", "P(N|A1=0,A2=1)")
+} else {
+  cols = c("P(N|A1=1,A2=0)", "P(N|A1=1,A2=1)")
+}
+n_cond_a2_probs = probs[,sapply(cols, add_prefix)]
+anova(lm(values ~ ind, stack(n_cond_a2_probs)))
+
+# ANOVA for all norm posteriors
+n_cond_all_probs = probs[,sapply(c("P(N|A1=0)", "P(N|A1=1)", cols), add_prefix)]
+anova(lm(values ~ ind, stack(n_cond_all_probs)))
+```
+
+Let's also run two sample t-tests for the action conditionals
+
+```{r}
+# Two-sample t-test for P(A1|D1=0,N)
+t.test(probs[,add_prefix("P(A1|D1=0,N=0)")], probs[,add_prefix("P(A1|D1=0,N=1)")],
+       var.equal=TRUE, paired=TRUE)
+
+# Two-sample t-test for P(A1|D1=1,N)
+t.test(probs[,add_prefix("P(A1|D1=1,N=0)")], probs[,add_prefix("P(A1|D1=1,N=1)")],
+       var.equal=TRUE, paired=TRUE)
+
+# Two-sample t-test for P(A2|D2=0,N)
+t.test(probs[,add_prefix("P(A2|D2=0,N=0)")], probs[,add_prefix("P(A2|D2=0,N=1)")],
+       var.equal=TRUE, paired=TRUE)
+
+# Two-sample t-test for P(A2|D2=1,N)
+t.test(probs[,add_prefix("P(A2|D2=1,N=0)")], probs[,add_prefix("P(A2|D2=1,N=1)")],
+       var.equal=TRUE, paired=TRUE)
+```
+
+Now let's finally build the models. First we build conditional probability tables from the mean survey data.
+
+```{r}
+# Code to prefix experiment number
+EXPERIMENT = 1
+add_prefix = function(x) {return(paste(EXPERIMENT, x, sep='.'))}
+
+# Helper function to get mean probs as list
+mean_probs = function(fieldname) {
+  p = mean(probs[, add_prefix(fieldname)], na.rm=TRUE)
+  return(c(1-p, p))
+}
+
+# Value names
+v_names = c("FALSE", "TRUE")
+
+# Priors
+cpt_N = matrix(mean_probs('P(N)'), ncol=2,
+               dimnames=list(NULL, v_names))
+cpt_D1 = matrix(mean_probs('P(D1)'), ncol=2,
+                dimnames=list(NULL, v_names))
+cpt_D2 = matrix(mean_probs('P(D2)'), ncol=2,
+                dimnames=list(NULL, v_names))
+
+# Desire conditionals
+cpt_D1_N = c(mean_probs('P(D1|N=0)'), mean_probs('P(D1|N=1)'))
+dim(cpt_D1_N) = c(2, 2)
+dimnames(cpt_D1_N) = list("D1"=v_names, "N"=v_names)
+
+cpt_D2_N = c(mean_probs('P(D2|N=0)'), mean_probs('P(D2|N=1)'))
+dim(cpt_D2_N) = c(2, 2)
+dimnames(cpt_D2_N) = list("D2"=v_names, "N"=v_names)
+
+# Action conditionals (desire-only)
+cpt_A1_D1 = c(mean_probs('P(A1|D1=0)'), mean_probs('P(A1|D1=1)'))
+dim(cpt_A1_D1) = c(2, 2)
+dimnames(cpt_A1_D1) = list("A1"=v_names, "D1"=v_names)
+
+cpt_A2_D2 = c(mean_probs('P(A2|D2=0)'), mean_probs('P(A2|D2=1)'))
+dim(cpt_A2_D2) = c(2, 2)
+dimnames(cpt_A2_D2) = list("A2"=v_names, "D2"=v_names)
+
+# Action conditionals (norm-only)
+cpt_A1_N = c(mean_probs('P(A1|N=0)'), mean_probs('P(A1|N=1)'))
+dim(cpt_A1_N) = c(2, 2)
+dimnames(cpt_A1_N) = list("A1"=v_names, "N"=v_names)
+
+cpt_A2_N = c(mean_probs('P(A2|N=0)'), mean_probs('P(A2|N=1)'))
+dim(cpt_A2_N) = c(2, 2)
+dimnames(cpt_A2_N) = list("A2"=v_names, "N"=v_names)
+
+# Action conditionals (both)
+cpt_A1_D1_N = c(mean_probs('P(A1|D1=0,N=0)'), mean_probs('P(A1|D1=0,N=1)'),
+                mean_probs('P(A1|D1=1,N=0)'), mean_probs('P(A1|D1=1,N=1)'))
+dim(cpt_A1_D1_N) = c(2, 2, 2)
+dimnames(cpt_A1_D1_N) = list("A1"=v_names, "N"=v_names, "D1"=v_names)
+cpt_A1_D1_N
+
+cpt_A2_D2_N = c(mean_probs('P(A2|D2=0,N=0)'), mean_probs('P(A2|D2=0,N=1)'),
+                mean_probs('P(A2|D2=1,N=0)'), mean_probs('P(A2|D2=1,N=1)'))
+dim(cpt_A2_D2_N) = c(2, 2, 2)
+dimnames(cpt_A2_D2_N) = list("A2"=v_names, "N"=v_names, "D2"=v_names)
+cpt_A2_D2_N
+
+# Posteriors
+cpt_N_A1 = c(mean_probs('P(N|A1=0)'), mean_probs('P(N|A1=1)'))
+dim(cpt_N_A1) = c(2, 2)
+dimnames(cpt_N_A1) = list("N"=v_names, "A1"=v_names)
+
+cpt_D1_A1 = c(mean_probs('P(D1|A1=0)'), mean_probs('P(D1|A1=1)'))
+dim(cpt_D1_A1) = c(2, 2)
+dimnames(cpt_D1_A1) = list("D1"=v_names, "A1"=v_names)
+
+if (EXPERIMENT == 1) {
+  cpt_N_A2 = c(mean_probs('P(N|A1=0,A2=0)'), mean_probs('P(N|A1=0,A2=1)'))
+} else {
+  cpt_N_A2 = c(mean_probs('P(N|A1=1,A2=0)'), mean_probs('P(N|A1=1,A2=1)'))
+}
+dim(cpt_N_A2) = c(2, 2)
+dimnames(cpt_N_A2) = list("N"=v_names, "A2"=v_names)
+
+cpt_D2_A2 = c(mean_probs('P(D2|A2=0)'), mean_probs('P(D2|A2=1)'))
+dim(cpt_D2_A2) = c(2, 2)
+dimnames(cpt_D2_A2) = list("D2"=v_names, "A2"=v_names)
+```
+
+Now we lets build the competing models. `net` contains the model that will be tested.
+
+```{r}
+library(bnlearn)
+library(Rgraphviz)
+SHOW_NETS = TRUE
+
+# N->D, and N and D jointly influence A
+n_to_d_net = model2network("[N][D1|N][A1|D1:N][D2|N][A2|D2:N]")
+n_to_d_net = custom.fit(n_to_d_net,
+                        dist=list(N=cpt_N, D1=cpt_D1_N, D2=cpt_D2_N,
+                                 A1=cpt_A1_D1_N, A2=cpt_A2_D2_N))
+
+# N independent of D, but N and D jointly influence A
+n_ind_d_net = model2network("[N][D1][A1|D1:N][D2][A2|D2:N]")
+n_ind_d_net = custom.fit(n_ind_d_net,
+                         dist=list(N=cpt_N, D1=cpt_D1, D2=cpt_D2,
+                                   A1=cpt_A1_D1_N, A2=cpt_A2_D2_N))
+
+# N->D->A
+n_to_d_to_a_net = model2network("[N][D1|N][A1|D1][D2|N][A2|D2]")
+n_to_d_to_a_net = custom.fit(n_to_d_to_a_net,
+                             dist=list(N=cpt_N, D1=cpt_D1_N, D2=cpt_D2_N,
+                                       A1=cpt_A1_D1, A2=cpt_A2_D2))
+
+# Norm only model (N->A1, A2)
+n_to_a_net = model2network("[N][D1][A1|N][D2][A2|N]")
+n_to_a_net = custom.fit(n_to_a_net,
+                        dist=list(N=cpt_N, D1=cpt_D1, D2=cpt_D2,
+                                   A1=cpt_A1_N, A2=cpt_A2_N))
+
+# Desire only model
+d_to_a_net = model2network("[N][D1][A1|D1][D2][A2|D2]")
+d_to_a_net = custom.fit(d_to_a_net,
+                        dist=list(N=cpt_N, D1=cpt_D1, D2=cpt_D2,
+                                  A1=cpt_A1_D1, A2=cpt_A2_D2))
+
+net_list = list(n_to_d_net, n_ind_d_net, n_to_d_to_a_net,
+                n_to_a_net, d_to_a_net)
+
+net = n_ind_d_net
+if (SHOW_NETS) {graphviz.plot(net)}
+print(net)
+```
+
+Now let's query for the norm and desire posteriors for each model.
+
+```{r}
+library(gRain)
+
+kl_div = function (p, q) {
+  return(sum(p*(log(p)-log(q))))
+}
+
+# Create dataframe to store predictions
+pred_names = c("P(D1|A1=0)", "P(D1|A1=1)", "div(D1|A1)",
+               "P(N|A1=0)", "P(N|A1=1)", "div(N|A1)",
+               "P(D2|A2=0)", "P(D2|A2=1)", "div(D2|A2)",
+               "P(N|A2=0)", "P(N|A2=1)", "div(N|A2)"
+               )
+predictions = data.frame()
+predictions["TRUTH", pred_names] = c(cpt_D1_A1[2,], 0, cpt_N_A1[2,], 0,
+                                     cpt_D2_A2[2,], 0, cpt_N_A2[2,], 0)
+
+for (net in net_list) {
+  # Convert to junction tree to perform exact inference using gRain
+  gr_net = compile(as.grain(net))
+  net_str = modelstring(net)
+  
+  # Query for the posteriors given A1
+  query_0 = querygrain(setEvidence(gr_net, nodes="A1", states="FALSE"),
+                       nodes=c("N","D1"))
+  query_1 = querygrain(setEvidence(gr_net, nodes="A1", states="TRUE"),
+                       nodes=c("N","D1"))
+  query_D1 = t(do.call(rbind, list(query_0$D1, query_1$D1)))
+  colnames(query_D1) = c("FALSE", "TRUE")
+  query_N = t(do.call(rbind, list(query_0$N, query_1$N)))
+  colnames(query_N) = c("FALSE", "TRUE")
+
+  predictions[net_str, c("P(D1|A1=0)", "P(D1|A1=1)", "div(D1|A1)")] = c(
+    query_D1[2,], kl_div(cpt_D1_A1, query_D1)
+  )
+  predictions[net_str, c("P(N|A1=0)", "P(N|A1=1)", "div(N|A1)")] = c(
+    query_N[2,], kl_div(cpt_N_A1, query_N)
+  )
+    
+  # Query for the posteriors given A2
+  if (EXPERIMENT == 1) {
+    A1_STATE = "FALSE"
+  } else {
+    A1_STATE = "TRUE"
+  }
+  query_0 = querygrain(setEvidence(gr_net, nodes=c("A2", "A1"),
+                                   states=c("FALSE", A1_STATE)),
+                       nodes=c("N","D2"))
+  query_1 = querygrain(setEvidence(gr_net, nodes=c("A2", "A1"),
+                                   states=c("TRUE", A1_STATE)),
+                       nodes=c("N","D2"))
+  query_D2 = t(do.call(rbind, list(query_0$D2, query_1$D2)))
+  colnames(query_D2) = c("FALSE", "TRUE")
+  query_N = t(do.call(rbind, list(query_0$N, query_1$N)))
+  colnames(query_N) = c("FALSE", "TRUE")
+
+  predictions[net_str, c("P(D2|A2=0)", "P(D2|A2=1)", "div(D2|A2)")] = c(
+    query_D2[2,], kl_div(cpt_D2_A2, query_D2)
+  )
+  predictions[net_str, c("P(N|A2=0)", "P(N|A2=1)", "div(N|A2)")] = c(
+    query_N[2,], kl_div(cpt_N_A2, query_N)
+  )
+}
+
+print(predictions)
+write.csv(predictions, paste("predictions_", EXPERIMENT, ".csv", sep=''))
+
+```
+Now let us compute the model correlations.
+
+```{r}
+prob_names = c("P(D1|A1=0)", "P(D1|A1=1)",
+               "P(N|A1=0)", "P(N|A1=1)",
+               "P(D2|A2=0)", "P(D2|A2=1)", 
+               "P(N|A2=0)", "P(N|A2=1)"
+               )
+true_probs = predictions['TRUTH', prob_names]
+for (net in net_list) {
+  net_str = modelstring(net)
+  model_probs = predictions[net_str, prob_names]
+  model_cor = cor(as.numeric(model_probs), as.numeric(true_probs))
+  cat(net_str, ":", model_cor, "\n")
+}
+```
+
+
+Now let's query for some other quantities as well.
+
+```{r}
+pred_names = c("P(D1)", "div(D1)", "P(D2)", "div(D2)",
+               "P(A1|D1=0)", "P(A1|D1=1)", "div(A1|D1)",
+               "P(A1|N=0)", "P(A1|N=1)", "div(A1|N)",
+               "P(A2|D2=0)", "P(A2|D2=1)", "div(A2|D2)",
+               "P(A2|N=0)", "P(A2|N=1)", "div(A2|N)"
+               )
+predictions["TRUTH", pred_names] = c(cpt_D1[2], 0, cpt_D2[2], 0,
+                                     cpt_A1_D1[2,], 0, cpt_A1_N[2,], 0,
+                                     cpt_A2_D2[2,], 0, cpt_A2_N[2,], 0)
+
+for (net in net_list) {
+  # Convert to junction tree to perform exact inference using gRain
+  gr_net = compile(as.grain(net))
+  net_str = modelstring(net)
+  
+  # Query for the desire marginals P(D1), P(D2)
+  query_D = querygrain(gr_net, nodes=c("D1", "D2"))
+  predictions[net_str, c("P(D1)", "div(D1)")] = c(
+    query_D$D1[2], kl_div(cpt_D1[1,], query_D$D1)
+  )
+  predictions[net_str, c("P(D2)", "div(D2)")] = c(
+    query_D$D2[2], kl_div(cpt_D2[1,], query_D$D2)
+  )
+  
+  # Query for the desire-only A1 conditionals
+  query_0 = querygrain(setEvidence(gr_net, nodes="D1", states="FALSE"),
+                       nodes=c("A1"))
+  query_1 = querygrain(setEvidence(gr_net, nodes="D1", states="TRUE"),
+                       nodes=c("A1"))
+  query_A1 = t(do.call(rbind, list(query_0$A1, query_1$A1)))
+  colnames(query_A1) = c("FALSE", "TRUE")
+  predictions[net_str, c("P(A1|D1=0)", "P(A1|D1=1)", "div(A1|D1)")] = c(
+    query_A1[2,], kl_div(cpt_A1_D1, query_A1)
+  )
+
+  # Query for the norm-only A1 conditionals
+  query_0 = querygrain(setEvidence(gr_net, nodes="N", states="FALSE"),
+                       nodes=c("A1"))
+  query_1 = querygrain(setEvidence(gr_net, nodes="N", states="TRUE"),
+                       nodes=c("A1"))
+  query_A1 = t(do.call(rbind, list(query_0$A1, query_1$A1)))
+  colnames(query_A1) = c("FALSE", "TRUE")
+  predictions[net_str, c("P(A1|N=0)", "P(A1|N=1)", "div(A1|N)")] = c(
+    query_A1[2,], kl_div(cpt_A1_N, query_A1)
+  )
+
+  if (EXPERIMENT == 1) {
+    A1_STATE = "FALSE"
+  } else {
+    A1_STATE = "TRUE"
+  }
+  
+  # Query for the desire-only A2 conditionals
+  query_0 = querygrain(setEvidence(gr_net, nodes=c("D2", "A1"),
+                                   states=c("FALSE", A1_STATE)),
+                       nodes=c("A2"))
+  query_1 = querygrain(setEvidence(gr_net, nodes=c("D2", "A1"),
+                                   states=c("TRUE", A1_STATE)),
+                       nodes=c("A2"))
+  query_A2 = t(do.call(rbind, list(query_0$A2, query_1$A2)))
+  colnames(query_A2) = c("FALSE", "TRUE")
+  predictions[net_str, c("P(A2|D2=0)", "P(A2|D2=1)", "div(A2|D2)")] = c(
+    query_A2[2,], kl_div(cpt_A2_D2, query_A2)
+  )
+
+  # Query for the norm-only A2 conditionals
+  query_0 = querygrain(setEvidence(gr_net, nodes=c("N", "A1"),
+                                   states=c("FALSE", A1_STATE)),
+                       nodes=c("A2"))
+  query_1 = querygrain(setEvidence(gr_net, nodes=c("N", "A1"),
+                                   states=c("TRUE", A1_STATE)),
+                       nodes=c("A2"))
+  query_A2 = t(do.call(rbind, list(query_0$A2, query_1$A2)))
+  colnames(query_A2) = c("FALSE", "TRUE")
+  predictions[net_str, c("P(A2|N=0)", "P(A2|N=1)", "div(A2|N)")] = c(
+    query_A2[2,], kl_div(cpt_A2_N, query_A2)
+  )
+}
+
+print(predictions)
+write.csv(predictions, paste("predictions_", EXPERIMENT, ".csv", sep=''))
+```
+
+And we're done! Set EXPERIMENT=2 to analyze the data for scenario 2.

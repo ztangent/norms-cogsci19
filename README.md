@@ -11,5 +11,5 @@ People act upon their desires, but often, also act in adherence to implicit soci
  - survey.qsf : Survey in Qualtrics Survey Format
  - data.tsv : Anonymized data collected from 200 MTurk workers
  - analysis.rmd : Analysis code in R Markdown
-
+ - analysis.nb.html : Analysis code in HTML
 
